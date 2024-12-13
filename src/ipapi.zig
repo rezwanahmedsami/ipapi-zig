@@ -171,7 +171,16 @@ test "Testing queryIp" {
     var response_buffer = std.ArrayList(u8).init(arena_state.allocator());
     defer response_buffer.deinit();
     const result = try queryIp("8.8.8.8", arena_state.allocator(), &response_buffer);
-    std.debug.print("{s}\n", .{result.ip});
-
-    try testing.expectEqual(result.ip, "8.8.8.8");
+    // std.debug.print("{s}\n", .{result.ip});
+    const ip_g: []const u8 = "8.8.8.8";
+    try testing.expect(std.mem.eql(u8, result.ip, ip_g));
+    try testing.expect(std.mem.eql(u8, result.isp.asn, "AS15169"));
+    try testing.expect(std.mem.eql(u8, result.isp.org, "Google LLC"));
+    try testing.expect(std.mem.eql(u8, result.isp.isp, "Google LLC"));
+    try testing.expect(std.mem.eql(u8, result.location.country, "United States"));
+    try testing.expect(std.mem.eql(u8, result.location.country_code, "US"));
+    try testing.expect(std.mem.eql(u8, result.location.city, "Mountain View"));
+    try testing.expect(std.mem.eql(u8, result.location.state, "California"));
+    try testing.expect(std.mem.eql(u8, result.location.zipcode, "94043"));
+    try testing.expect(std.mem.eql(u8, result.location.timezone, "America/Los_Angeles"));
 }
