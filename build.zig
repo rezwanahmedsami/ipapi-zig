@@ -10,6 +10,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/ipapi.zig"),
         .target = target,
         .optimize = optimize,
+        .version = .{
+            .major = 1,
+            .minor = 0,
+            .patch = 0,
+        },
     });
 
     // Link to the libcurl library
