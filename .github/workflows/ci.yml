@@ -1,0 +1,36 @@
+name: Zig CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Zig
+      uses: ziglang/zig-action@v0.1
+      with:
+        zig-version: '0.10.0'  # specify the version of Zig you want to use
+
+    - name: Install dependencies
+      run: |
+        # If you have any dependencies or tools to install, run them here
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev
+
+    - name: Build project
+      run: |
+        zig build  # This runs the default build process for the Zig project
+
+    - name: Run tests
+      run: |
+        zig test  # This runs tests for the Zig project

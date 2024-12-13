@@ -122,10 +122,12 @@ pub fn queryIp(ip: []const u8, allocator: std.mem.Allocator, response_buffer: *s
     url_buffer[url_len] = 0;
     const url = &url_buffer[0 .. url_len + 1];
 
-    // Global curl init
-    if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
-        return error.CURLGlobalInitFailed;
-    defer cURL.curl_global_cleanup();
+    // std.debug.print("URL: {s}\n", .{url.*});
+
+    // // Global curl init
+    // if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
+    //     return error.CURLGlobalInitFailed;
+    // defer cURL.curl_global_cleanup();
 
     // Curl easy handle init
     const handle = cURL.curl_easy_init();
@@ -162,6 +164,157 @@ pub fn queryIp(ip: []const u8, allocator: std.mem.Allocator, response_buffer: *s
 
     return json;
 }
+/// Joins an array of IP addresses into a comma-separated string.
+pub fn joinIps(ip_arr: []const []const u8, allocator: std.mem.Allocator) ![]const u8 {
+    var builder = std.ArrayList(u8).init(allocator);
+    defer builder.deinit();
+
+    var first = true;
+    for (ip_arr) |ip| {
+        if (!first) {
+            try builder.appendSlice(","); // Comma separator
+        } else {
+            first = false;
+        }
+        try builder.appendSlice(ip);
+    }
+
+    return builder.toOwnedSlice();
+}
+
+/// Fetches information for multiple IP addresses.
+///
+/// The function queries the ipquery.io API for information about multiple IP addresses.
+///
+/// # Parameters
+/// - `ip_arr`: An array of IP addresses to query.
+/// - `allocator`: The allocator to use for deserialization.
+/// - `response_buffer`: A buffer to store the response from cURL.
+///
+/// # Returns
+/// An array of `IpInfo` structs containing the information for each IP address.
+///
+/// # Example
+/// ```zig
+/// const std = @import("std");
+/// const ipapi = @import("ipapi.zig");
+///
+/// pub fn main() !void {
+///
+///    // Initialize the arena allocator
+///  var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+/// // Defer the deinitialization of the arena allocator
+///  defer arena_state.deinit();
+///
+/// // Get the allocator from the arena allocator
+/// const allocator = arena_state.allocator();
+/// var response_buffer_bulk = std.ArrayList(u8).init(allocator);
+/// // Free the response buffer after usage (!!!!Important!!!!)
+/// defer response_buffer_bulk.deinit();
+/// // Define the IPs as a slice
+/// const ips: []const []const u8 = &[_][]const u8{ "8.8.8.8", "1.1.1.1" };
+/// // Call queryBulk
+/// const results = try ipapi.queryBulk(ips, allocator, &response_buffer_bulk);
+/// // Print the results
+/// for (results) |ip_info| {
+///     std.debug.print("Queried IP: {s}\n", .{ip_info.ip});
+/// }
+pub fn queryBulk(ip_arr: []const []const u8, allocator: std.mem.Allocator, response_buffer: *std.ArrayList(u8)) ![]IpInfo {
+    // Initialize the result list
+    var result_list = std.ArrayList(IpInfo).init(allocator);
+    defer result_list.deinit();
+
+    //ip_arr to ip,ip
+    const ips = try joinIps(ip_arr, allocator);
+
+    // Construct the URL
+    var url_buffer: [256]u8 = undefined;
+    const url_len_slice = try std.fmt.bufPrint(&url_buffer, "{s}{s}", .{ BASE_URL, ips });
+    const url_len = url_len_slice.len;
+    url_buffer[url_len] = 0;
+
+    const url = &url_buffer[0 .. url_len + 1];
+
+    // Global curl init
+    // if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
+    //     return error.CURLGlobalInitFailed;
+    // defer cURL.curl_global_cleanup();
+
+    // Curl easy handle init
+    const handle = cURL.curl_easy_init();
+    defer cURL.curl_easy_cleanup(handle);
+
+    // Setup curl options
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, url.ptr) != cURL.CURLE_OK)
+        return error.CouldNotSetURL;
+
+    // Set write function callbacks
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToArrayListCallback) != cURL.CURLE_OK)
+        return error.CouldNotSetWriteCallback;
+
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, response_buffer) != cURL.CURLE_OK)
+        return error.CouldNotSetWriteCallback;
+
+    // Perform the request
+    if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
+        return error.FailedToPerformRequest;
+
+    // Deserialize the response
+    const parsed = try std.json.parseFromSlice(
+        []IpInfo,
+        allocator,
+        response_buffer.items,
+        .{},
+    );
+
+    // Append the results to the result list
+    for (parsed.value) |ip_info| {
+        try result_list.append(ip_info);
+    }
+
+    // Return the results as a slice
+    return result_list.toOwnedSlice();
+}
+
+/// Fetches the IP address of the current machine.
+pub fn queryOwnIp() ![]const u8 {
+    const allocator = std.heap.page_allocator;
+    var response_buffer = std.ArrayList(u8).init(allocator);
+    defer response_buffer.deinit();
+
+    // Use BASE_URL directly
+    const url = BASE_URL;
+
+    // Curl easy handle init
+    const handle = cURL.curl_easy_init();
+    if (handle == null) {
+        return error.CouldNotInitCurlHandle; // Handle the case if the handle could not be initialized
+    }
+    defer cURL.curl_easy_cleanup(handle);
+
+    // Setup curl options
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, url.ptr) != cURL.CURLE_OK) {
+        return error.CouldNotSetURL;
+    }
+
+    // Set write function callbacks
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToArrayListCallback) != cURL.CURLE_OK) {
+        return error.CouldNotSetWriteCallback;
+    }
+
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_buffer) != cURL.CURLE_OK) {
+        return error.CouldNotSetWriteCallback;
+    }
+
+    // Perform the request
+    if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK) {
+        std.debug.print("Failed to perform request {}\n", .{cURL.curl_easy_perform(handle)});
+        return error.FailedToPerformRequest;
+    }
+
+    // Return the data in the response buffer as a slice
+    return response_buffer.toOwnedSlice();
+}
 
 test "Testing queryIp" {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -183,4 +336,30 @@ test "Testing queryIp" {
     try testing.expect(std.mem.eql(u8, result.location.state, "California"));
     try testing.expect(std.mem.eql(u8, result.location.zipcode, "94043"));
     try testing.expect(std.mem.eql(u8, result.location.timezone, "America/Los_Angeles"));
+}
+
+test "Testing queryBulk" {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+
+    var response_buffer = std.ArrayList(u8).init(arena_state.allocator());
+    defer response_buffer.deinit();
+
+    const ips: []const []const u8 = &[_][]const u8{ "8.8.8.8", "1.1.1.1" };
+
+    const results = try queryBulk(ips, arena_state.allocator(), &response_buffer);
+
+    try testing.expect(results.len == 2);
+
+    const ip1: []const u8 = "8.8.8.8";
+    const ip2: []const u8 = "1.1.1.1";
+
+    try testing.expect(std.mem.eql(u8, results[0].ip, ip1));
+    try testing.expect(std.mem.eql(u8, results[1].ip, ip2));
+
+    try testing.expect(std.mem.eql(u8, results[0].isp.asn, "AS15169"));
+    try testing.expect(std.mem.eql(u8, results[1].isp.asn, "AS13335"));
+
+    try testing.expect(std.mem.eql(u8, results[0].isp.org, "Google LLC"));
+    try testing.expect(std.mem.eql(u8, results[1].isp.org, "Cloudflare, Inc."));
 }
