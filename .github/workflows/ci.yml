@@ -24,6 +24,8 @@ jobs:
         # If you have any dependencies or tools to install, run them here
         sudo apt-get update
         sudo apt-get install -y libssl-dev
+        sudo apt-get install -y libcurl4-openssl-dev
+
 
     - name: Build project
       run: |
