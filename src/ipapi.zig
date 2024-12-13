@@ -74,69 +74,79 @@ fn writeToArrayListCallback(data: *anyopaque, size: c_uint, nmemb: c_uint, user_
 }
 
 /// Returns an error if the network request fails or the response cannot be deserialized.
-/// queryIp("8.8.8.8") BASE)URL+"8.8.8.8"
-pub fn queryIp(ip: []const u8) !IpInfo {
-    // Dynamically format the URL
-    // var url_buffer: [256]u8 = undefined;
-    // const url_len = try std.fmt.bufPrint(&url_buffer, "{s}{s}", .{ BASE_URL, ip });
-
-    // // Ensure null termination at the end of the used portion of the buffer
-    // url_buffer[url_len] = 0; // Null-terminate the string at the correct index
-    // const url = "https://api.ipquery.io/8.8.8.8";
-    // std.log.info("Querying IP address {s}", .{ip});
-
+/// Otherwise, returns the IP information.
+/// /**
+/// * Queries the ipquery.io API for information about the specified IP address.
+/// * @param ip The IP address to query.
+/// * @param allocator The allocator to use for deserialization.
+/// * @param response_buffer A buffer to store the response from cURL.
+/// * @return The IP information if successful, or an error if the request fails.
+/// */
+/// Example usage:
+/// ```zig
+/// const std = @import("std");
+/// const ipapi = @import("ipapi.zig");
+///
+/// pub fn main() !void {
+///
+///    // Initialize the arena allocator
+///   var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+///   // Defer the deinitialization of the arena allocator
+///  defer arena_state.deinit();
+///
+/// // Get the allocator from the arena allocator
+/// const allocator = arena_state.allocator();
+///
+/// // Create the response buffer to store the result from cURL
+/// var response_buffer = std.ArrayList(u8).init(allocator);
+///
+/// // Query IP information
+/// const result = try ipapi.queryIp("8.8.8.8", allocator, &response_buffer);
+///
+/// std.debug.print("{}\n", .{result});
+///
+/// const stdout = std.io.getStdOut().writer();
+/// // Print the IP field
+/// try stdout.print("IP: {s}\n", .{result.ip});
+///
+/// // Free the response buffer after usage (!!!!Important!!!!)
+/// response_buffer.deinit();
+/// }
+/// ```
+///
+///
+pub fn queryIp(ip: []const u8, allocator: std.mem.Allocator, response_buffer: *std.ArrayList(u8)) !IpInfo {
     var url_buffer: [256]u8 = undefined;
     const url_len_slice = try std.fmt.bufPrint(&url_buffer, "{s}{s}", .{ BASE_URL, ip });
-
-    // Calculate the length of the formatted string
     const url_len = url_len_slice.len;
-
-    // Null-terminate the URL
     url_buffer[url_len] = 0;
-
-    // Define the URL slice including the null terminator
     const url = &url_buffer[0 .. url_len + 1];
-
-    // std.debug.print("URL: {s}\n", .{url.*});
-
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    defer arena_state.deinit();
-
-    const allocator = arena_state.allocator();
 
     // Global curl init
     if (cURL.curl_global_init(cURL.CURL_GLOBAL_ALL) != cURL.CURLE_OK)
         return error.CURLGlobalInitFailed;
-    // std.debug.print("CURLGlobalInitFailed\n", .{});
     defer cURL.curl_global_cleanup();
 
     // Curl easy handle init
     const handle = cURL.curl_easy_init();
     defer cURL.curl_easy_cleanup(handle);
 
-    var response_buffer = std.ArrayList(u8).init(allocator);
-    defer response_buffer.deinit();
-
     // Setup curl options
     if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_URL, url.ptr) != cURL.CURLE_OK)
         return error.CouldNotSetURL;
-    // std.debug.print("CouldNotSetURL\n", .{});
 
     // Set write function callbacks
     if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEFUNCTION, writeToArrayListCallback) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
-    // std.debug.print("CouldNotSetWriteCallback\n", .{});
-    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, &response_buffer) != cURL.CURLE_OK)
+    if (cURL.curl_easy_setopt(handle, cURL.CURLOPT_WRITEDATA, response_buffer) != cURL.CURLE_OK)
         return error.CouldNotSetWriteCallback;
-    // std.debug.print("CouldNotSetWriteCallback\n", .{});
 
     // Perform the request
     if (cURL.curl_easy_perform(handle) != cURL.CURLE_OK)
         return error.FailedToPerformRequest;
-    // std.debug.print("FailedToPerformRequest\n", .{});
 
-    std.log.info("Got response of {d} bytes", .{response_buffer.items.len});
-    std.debug.print("{s}\n", .{response_buffer.items});
+    // std.log.info("Got response of {d} bytes", .{response_buffer.items.len});
+    // std.debug.print("{s}\n", .{response_buffer.items});
 
     // Deserialize the response
     const parsed = try std.json.parseFromSlice(
@@ -148,7 +158,20 @@ pub fn queryIp(ip: []const u8) !IpInfo {
     defer parsed.deinit();
 
     const json = parsed.value;
-    std.debug.print("ip2: {s}\n", .{json.ip});
+    // std.debug.print("ip2: {s}\n", .{json.ip});
 
     return json;
+}
+
+test "Testing queryIp" {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+
+    // Use arena_state.allocator() instead of arena.allocator
+    var response_buffer = std.ArrayList(u8).init(arena_state.allocator());
+    defer response_buffer.deinit();
+    const result = try queryIp("8.8.8.8", arena_state.allocator(), &response_buffer);
+    std.debug.print("{s}\n", .{result.ip});
+
+    try testing.expectEqual(result.ip, "8.8.8.8");
 }
